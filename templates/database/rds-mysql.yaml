@@ -2,36 +2,11 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: RDS MySQL database in private subnets
 
 Parameters:
-  DBName:
-    Type: String
-    Default: mydb
-    Description: MySQL database name
-
-  DBUser:
-    Type: String
-    Default: admin
-    Description: Master username
-
-  DBPassword:
-    Type: String
-    NoEcho: true
-    Description: Master password for MySQL
-
-  DBInstanceClass:
-    Type: String
-    Default: db.t3.micro
-    Description: RDS instance type
-
-  AllocatedStorage:
-    Type: Number
-    Default: 20
-    Description: Storage in GB
-
   ProjectName:
     Type: String
     Default: cf-ec2-rds-vpc-sns
-    Description: Project name for tagging
-
+    Description: Project name used for tagging
+  
   EnvironmentName:
     Type: String
     Default: dev
@@ -39,7 +14,67 @@ Parameters:
       - dev
       - prod
       - staging
-    Description: Environment name
+    Description: Deployment environment
+
+  DBName:
+    Type: String
+    Default: mydatabase
+    Description: The name of the database to create when the DB instance is created.
+    
+  DBUser:
+    Type: String
+    Default: admin
+    Description: The database admin account username.
+    
+  DBPassword:
+    Type: String
+    NoEcho: true
+    Description: The database admin account password.
+    
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    AllowedValues:
+      - db.t3.micro
+      - db.t3.small
+      - db.t3.medium
+      - db.t3.large
+      - db.m5.large
+      - db.m5.xlarge
+    Description: The compute and memory capacity of the DB instance.
+    
+  AllocatedStorage:
+    Type: Number
+    Default: 20
+    Description: The size of the database (Gb).
+    MinValue: 20
+    MaxValue: 65536
+
+  PreferedBackupWindow:
+    Type: String
+    Default: "03:00-04:00"
+    Description: The daily time range during which automated backups are created if automated backups are enabled.
+  
+  PreferedMaintenanceWindow:
+    Type: String
+    Default: "sun:05:00-sun:06:00"
+    Description: The weekly time range during which system maintenance can occur.
+  
+  MultiAZ:
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
+    Description: Specifies if the RDS instance is Multi-AZ deployed.
+    
+  StorageEncrypted:
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
+    Description: Specifies whether the RDS instance storage is encrypted.
 
 Resources:
   RDSSubnetGroup:
@@ -49,56 +84,142 @@ Resources:
       SubnetIds:
         - !ImportValue Network-PrivateSubnet1Id
         - !ImportValue Network-PrivateSubnet2Id
+      DBSubnetGroupName: !Sub "${ProjectName}-${EnvironmentName}-rds-subnet-group"
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-${EnvironmentName}-rds-subnet-group"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  DBParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: Custom parameter group for MySQL RDS
+      Family: mysql8.0
+      Parameters:
+      
+        innodb_buffer_pool_size: '{DBInstanceClassMemory/2}'
+        max_connections: "100"
+        slow_query_log: "1"
+        long_query_time: "2"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-rds-parameter-group"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
 
   RDSInstance:
     Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: snapshot
+    
+
     Properties:
+     DBInstanceIdentifier: !Sub "${ProjectName}-${EnvironmentName}-rds-instance"
       DBName: !Ref DBName
-      Engine: mysql
-      MasterUsername: !Ref DBUser
-      MasterUserPassword: !Ref DBPassword
       DBInstanceClass: !Ref DBInstanceClass
       AllocatedStorage: !Ref AllocatedStorage
-      VPCSecurityGroups:
-        - !ImportValue SecurityGroup-RDS
-      DBSubnetGroupName: !Ref RDSSubnetGroup
-      PubliclyAccessible: false
-      MultiAZ: true
       StorageType: gp2
+      StorageEncrypted: !Ref StorageEncrypted
+      
+      #Engine configuration
+      Engine: mysql
+      EngineVersion: "8.0.33"
+
+      #Authentication
+      MasterUsername: !Ref DBUser
+      MasterUserPassword: !Ref DBPassword
+
+      #Network & Security
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      VPCSecurityGroups:
+        - Fn::ImportValue: !Sub "${ProjectName}-${EnvironmentName}-RDSSecurityGroupID"
+      PubliclyAccessible: false
+
+      #Backup & Maintenance
+      BackupRetentionPeriod: !Ref BackupRetentionPeriod
+      PreferredBackupWindow: !Ref PreferedBackupWindow
+      PreferredAutomatedBackups: !If [IsProd, false, true]
+
+      #Maintenance
+      PreferredMaintenanceWindow: !Ref PreferedMaintenanceWindow
+      AutoMinorVersionUpgrade: true
+
+      #High Availability
+      MultiAZ: !If [IsProd, true, !Ref MultiAZ]
+
+      #Parameter Group
+      DBParameterGroupName: !Ref DBParameterGroup
+
+      #Monitoring
+      MonitoringInterval: 60
+      MonitoringRoleArn: !ImportValue Monitoring-RDSMonitoringRoleArn
+      EnablePerformanceInsights: true
+      PerformanceInsightsRetentionPeriod: 7
+
+      #Logging
+      EnableCloudwatchLogsExports:
+        - slowquery
+        - error
+        - general
+      
       Tags:
         - Key: Name
-          Value: !Sub "${ProjectName}-${EnvironmentName}-rds"
-   
-   
-   
-    RDSEventSubscription:
-    Type: AWS::RDS::EventSubscription
-    Properties:
-      SnsTopicArn: !ImportValue Messaging-RDSSNSTopicArn
-      SourceType: db-instance
-      SourceIds:
-        - !Ref RDSInstance
-      EventCategories:
-        - availability
-        - failover
-        - maintenance
-        - backup
-        - recovery
-      Enabled: true
+          Value: !Sub "${ProjectName}-${EnvironmentName}-rds-instance"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Engine
+          Value: mysql
+  
 
 
 Outputs:
+  RDSInstanceID:
+    Description: RDS Instance ID
+    Value: !Ref RDSInstance
+    Export:
+      Name: !Sub "${ProjectName}-${EnvironmentName}-RDSInstanceID"
+    
   RDSInstanceEndpoint:
-    Description: RDS endpoint address
+    Description: RDS Instance Endpoint
     Value: !GetAtt RDSInstance.Endpoint.Address
     Export:
-      Name: Database-RDSEndpoint
-
+      Name: !Sub "${ProjectName}-${EnvironmentName}-RDSInstanceEndpoint"
+  
   RDSInstancePort:
-    Description: RDS port
+    Description: RDS Instance Port
     Value: !GetAtt RDSInstance.Endpoint.Port
     Export:
-      Name: Database-RDSPort
+      Name: !Sub "${ProjectName}-${EnvironmentName}-RDSInstancePort"
+  
+  # Database Configuration outputs
+  DatabaseName:
+    Description: The name of the database
+    Value: !Ref DBName
+    Export:
+      Name: !Sub "${ProjectName}-${EnvironmentName}-DatabaseName"
+  DatabaseUser:
+    Description: The database admin account username
+    Value: !Ref DBUser
+    Export:
+      Name: !Sub "${ProjectName}-${EnvironmentName}-DatabaseUser"
+  
+  # Connection String output
+  DatabaseConnectionString:
+    Description: The database connection string
+    Value: !Sub "${DBUser}:${DBPassword}@${RDSInstance.Endpoint.Address}:${RDSInstance.Endpoint.Port}/${DBName}"
+    Export:
+      Name: !Sub "${ProjectName}-${EnvironmentName}-DatabaseConnectionString"
+  
+  RDSSubnetGroupName:
+    Description: RDS Subnet Group Name
+    Value: !Ref RDSSubnetGroup
+    Export:
+      Name: !Sub "${ProjectName}-${EnvironmentName}-RDSSubnetGroupName"
