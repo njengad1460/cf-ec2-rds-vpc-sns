@@ -1,0 +1,50 @@
+name: Deploy CloudFormation Stack
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_REGION: us-east-1
+  STACK_NAME: cf-ec2-rds-vpc-sns
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Package CloudFormation templates
+        run: |
+          aws cloudformation package \
+            --template-file templates/root.yaml \
+            --s3-bucket ${{ secrets.CF_S3_BUCKET }} \
+
+
+
+# 3️⃣ GitHub Secrets you MUST create 🔐
+
+# Go to:
+
+# GitHub repo → Settings → Secrets and variables → Actions
+
+
+# Add these secrets:
+
+# Secret Name	Purpose
+# AWS_ACCESS_KEY_ID	IAM user access key
+# AWS_SECRET_ACCESS_KEY	IAM user secret key
+# CF_S3_BUCKET	S3 bucket for templates
+# EC2_KEY_NAME	Existing EC2 key pair
+# NOTIFICATION_EMAIL	SNS email
+# DB_PASSWORD	RDS master password

@@ -1,0 +1,46 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SNS topic for RDS monitoring and notifications
+
+Parameters:
+  NotificationEmail:
+    Type: String
+    Description: Email address to receive SNS notifications
+
+  ProjectName:
+    Type: String
+    Default: cf-ec2-rds-vpc-sns
+    Description: Project name for tagging
+
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+      - staging
+    Description: Environment name
+
+Resources:
+  RDSSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "${ProjectName}-${EnvironmentName}-rds-alerts"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-rds-alerts"
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  RDSSNSTopicSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref RDSSNSTopic
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+
+Outputs:
+  RDSSNSTopicArn:
+    Description: SNS Topic ARN for RDS notifications
+    Value: !Ref RDSSNSTopic
+    Export:
+      Name: Messaging-RDSSNSTopicArn

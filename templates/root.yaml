@@ -1,0 +1,90 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Root stack to orchestrate network, security, compute, database, and messaging stacks
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: cf-ec2-rds-vpc-sns
+
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+      - staging
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 KeyPair name for SSH access
+
+  NotificationEmail:
+    Type: String
+    Description: Email address for SNS notifications
+
+  DBPassword:
+    Type: String
+    NoEcho: true
+    Description: Master password for RDS MySQL
+
+Resources:
+  NetworkStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: templates/network/vpc.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        EnvironmentName: !Ref EnvironmentName
+
+  SecurityStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: NetworkStack
+    Properties:
+      TemplateURL: templates/security/security-groups.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        EnvironmentName: !Ref EnvironmentName
+
+  MessagingStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: templates/messaging/sns.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        EnvironmentName: !Ref EnvironmentName
+        NotificationEmail: !Ref NotificationEmail
+
+  ComputeStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: SecurityStack
+    Properties:
+      TemplateURL: templates/compute/ec2.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        EnvironmentName: !Ref EnvironmentName
+        KeyName: !Ref KeyName
+
+  DatabaseStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - SecurityStack
+      - MessagingStack
+    Properties:
+      TemplateURL: templates/database/rds-mysql.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        EnvironmentName: !Ref EnvironmentName
+        DBPassword: !Ref DBPassword
+
+Outputs:
+  Environment:
+    Description: Deployed environment name
+    Value: !Ref EnvironmentName
+
+    
+#     Condition⚠️ One important note (TemplateURL)
+
+# In real AWS deployments, this must point to S3, not local paths:
+
+# TemplateURL: https://s3.amazonaws.com/my-bucket/templates/network/vpc.yaml
+# : 

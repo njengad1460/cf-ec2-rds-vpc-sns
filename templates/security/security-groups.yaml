@@ -1,0 +1,104 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Security stack defining security groups for EC2 and RDS
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: cf-ec2-rds-vpc-sns
+    Description: Project name used for tagging
+  
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+      - staging
+    Description: Deployment environment
+    
+  SSHAccessCIDR:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR block allowed to access EC2 instances via SSH
+    ConstraintDescription: must be a valid CIDR block
+    
+  HTTPAccessCIDR:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR block allowed to access EC2 instances via HTTP
+    ConstraintDescription: must be a valid CIDR block
+    
+Resources:
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for EC2 instances
+      GroupName: !Sub "${ProjectName}-${EnvironmentName}-ec2-sg"
+      VpcId: !ImportValue
+        Fn::Sub: "${ProjectName}-${EnvironmentName}-VPCID"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SSHAccessCIDR
+          Description: Allow SSH access
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref HTTPAccessCIDR
+          Description: Allow HTTP access
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref HTTPAccessCIDR
+          Description: Allow HTTPS access
+
+
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-ec2-sg"   
+  
+  
+  
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for RDS instances
+      GroupName: !Sub "${ProjectName}-${EnvironmentName}-rds-sg"
+      VpcId: !ImportValue
+        Fn::Sub: "${ProjectName}-${EnvironmentName}-VPCID"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref EC2SecurityGroup
+          Description: Allow MySQL access from EC2 instances
+          # No expricit egress rules needed; default allows all outbound traffic because security group is stateful
+Outputs:
+  EC2SecurityGroupId:
+    Description: Security Group ID for EC2 instances
+    Value: !Ref EC2SecurityGroup
+    Export: 
+      Name: !Sub "${ProjectName}-${EnvironmentName}-EC2SecurityGroupID"
+  
+  EC2SecurityGroupName:
+    Description: Security Group Name for EC2 instances
+    Value: !GetAtt EC2SecurityGroup.GroupName
+    Export:
+      Name: !Sub "${ProjectName}-${EnvironmentName}-EC2SecurityGroupName"
+
+  RDSSecurityGroupId:
+    Description: Security Group ID for RDS instances
+    Value: !Ref RDSSecurityGroup
+    Export: 
+      Name: !Sub "${ProjectName}-${EnvironmentName}-RDSSecurityGroupID"
+  
+  RDSSecurityGroupName:
+    Description: Security Group Name for RDS instances
+    Value: !GetAtt RDSSecurityGroup.GroupName
+    Export:
+      Name: !Sub "${ProjectName}-${EnvironmentName}-RDSSecurityGroupName"

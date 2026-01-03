@@ -1,0 +1,104 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: RDS MySQL database in private subnets
+
+Parameters:
+  DBName:
+    Type: String
+    Default: mydb
+    Description: MySQL database name
+
+  DBUser:
+    Type: String
+    Default: admin
+    Description: Master username
+
+  DBPassword:
+    Type: String
+    NoEcho: true
+    Description: Master password for MySQL
+
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    Description: RDS instance type
+
+  AllocatedStorage:
+    Type: Number
+    Default: 20
+    Description: Storage in GB
+
+  ProjectName:
+    Type: String
+    Default: cf-ec2-rds-vpc-sns
+    Description: Project name for tagging
+
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+      - staging
+    Description: Environment name
+
+Resources:
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for private RDS
+      SubnetIds:
+        - !ImportValue Network-PrivateSubnet1Id
+        - !ImportValue Network-PrivateSubnet2Id
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-rds-subnet-group"
+
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBName: !Ref DBName
+      Engine: mysql
+      MasterUsername: !Ref DBUser
+      MasterUserPassword: !Ref DBPassword
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: !Ref AllocatedStorage
+      VPCSecurityGroups:
+        - !ImportValue SecurityGroup-RDS
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      PubliclyAccessible: false
+      MultiAZ: true
+      StorageType: gp2
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvironmentName}-rds"
+   
+   
+   
+    RDSEventSubscription:
+    Type: AWS::RDS::EventSubscription
+    Properties:
+      SnsTopicArn: !ImportValue Messaging-RDSSNSTopicArn
+      SourceType: db-instance
+      SourceIds:
+        - !Ref RDSInstance
+      EventCategories:
+        - availability
+        - failover
+        - maintenance
+        - backup
+        - recovery
+      Enabled: true
+
+
+Outputs:
+  RDSInstanceEndpoint:
+    Description: RDS endpoint address
+    Value: !GetAtt RDSInstance.Endpoint.Address
+    Export:
+      Name: Database-RDSEndpoint
+
+  RDSInstancePort:
+    Description: RDS port
+    Value: !GetAtt RDSInstance.Endpoint.Port
+    Export:
+      Name: Database-RDSPort
