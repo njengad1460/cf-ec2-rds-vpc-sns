@@ -18,7 +18,7 @@ Parameters:
     
   KeyPairName:
     Description: Name of existing EC2 KeyPair for SSH access
-    Type: AWS::EC2::KeyPair::KeyName
+    Type: AWS::EC2::KeyPair::RDS-EC2-keypair
 
   LatestAmiId:
     Description: Latest Amazon Linux 2023 AMI ID

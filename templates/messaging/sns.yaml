@@ -1,46 +1,98 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: SNS topic for RDS monitoring and notifications
+Description: 'Monitoring Stack - SNS notifications for RDS events'
 
 Parameters:
-  NotificationEmail:
-    Type: String
-    Description: Email address to receive SNS notifications
-
   ProjectName:
     Type: String
     Default: cf-ec2-rds-vpc-sns
-    Description: Project name for tagging
-
-  EnvironmentName:
+    Description: Project name used for tagging
+    
+  Environment:
     Type: String
     Default: dev
     AllowedValues:
       - dev
       - prod
       - staging
-    Description: Environment name
+    Description: Deployment environment
+    
+  NotificationEmail:
+    Description: Email address to receive RDS notifications
+    Type: String
+    AllowedPattern: ^[^\s@]+@[^\s@]+\.[^\s@]+$
+    ConstraintDescription: Must be a valid email address
 
 Resources:
-  RDSSNSTopic:
+  # SNS Topic for RDS Notifications
+  RDSNotificationTopic:
     Type: AWS::SNS::Topic
     Properties:
-      TopicName: !Sub "${ProjectName}-${EnvironmentName}-rds-alerts"
+      TopicName: !Sub '${ProjectName}-${Environment}-rds-notifications'
+      DisplayName: !Sub 'RDS Notifications - ${ProjectName} ${Environment}'
       Tags:
         - Key: Name
-          Value: !Sub "${ProjectName}-${EnvironmentName}-rds-alerts"
+          Value: !Sub '${ProjectName}-${Environment}-rds-notifications'
+        - Key: Project
+          Value: !Ref ProjectName
         - Key: Environment
-          Value: !Ref EnvironmentName
+          Value: !Ref Environment
 
-  RDSSNSTopicSubscription:
+  # Email Subscription to SNS Topic
+  EmailSubscription:
     Type: AWS::SNS::Subscription
     Properties:
-      TopicArn: !Ref RDSSNSTopic
       Protocol: email
+      TopicArn: !Ref RDSNotificationTopic
       Endpoint: !Ref NotificationEmail
 
+  # RDS Event Subscription for Database Instance Events
+  RDSEventSubscription:
+    Type: AWS::RDS::EventSubscription
+    Properties:
+      SubscriptionName: !Sub '${ProjectName}-${Environment}-rds-events'
+      SnsTopicArn: !Ref RDSNotificationTopic
+      SourceType: db-instance
+      SourceIds:
+        - Fn::ImportValue: !Sub '${ProjectName}-${Environment}-RDS-InstanceId'
+      EventCategories:
+        - availability
+        - backup
+        - configuration change
+        - creation
+        - deletion
+        - failover
+        - failure
+        - maintenance
+        - notification
+        - recovery
+      Enabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-rds-events'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
 Outputs:
-  RDSSNSTopicArn:
-    Description: SNS Topic ARN for RDS notifications
-    Value: !Ref RDSSNSTopic
+  SNSTopicArn:
+    Description: ARN of the SNS topic for RDS notifications
+    Value: !Ref RDSNotificationTopic
     Export:
-      Name: Messaging-RDSSNSTopicArn
+      Name: !Sub '${ProjectName}-${Environment}-SNS-Topic-ARN'
+
+  SNSTopicName:
+    Description: Name of the SNS topic
+    Value: !GetAtt RDSNotificationTopic.TopicName
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-SNS-Topic-Name'
+
+  EventSubscriptionName:
+    Description: Name of the RDS event subscription
+    Value: !Ref RDSEventSubscription
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-RDS-EventSubscription'
+
+  NotificationEmail:
+    Description: Email address receiving notifications
+    Value: !Ref NotificationEmail
